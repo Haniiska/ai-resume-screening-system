@@ -1,5 +1,6 @@
 streamlit
-pandas
-numpy
 PyPDF2
 scikit-learn
+langchain
+langchain-community
+numpy
