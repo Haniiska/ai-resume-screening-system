@@ -1,149 +1,130 @@
 import streamlit as st
-from PyPDF2 import PdfReader
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
+from PyPDF2 import PdfReader
+import pandas as pd
 
-# ------------------ PAGE CONFIG ------------------
+# ---------------- PAGE CONFIG ----------------
 st.set_page_config(
     page_title="Resume Screening AI",
-    layout="wide",
-    page_icon="📄"
+    page_icon="📄",
+    layout="wide"
 )
 
-# ------------------ CUSTOM CSS ------------------
+# ---------------- CUSTOM CSS ----------------
 st.markdown("""
 <style>
-body {
-    background: radial-gradient(circle at top left, #2b1055, #0f0c29);
-    color: white;
+.stApp {
+    background: linear-gradient(135deg, #e8f5e9, #c8e6c9);
+    color: #1b1b1b;
 }
-.main {
-    background: transparent;
-}
+
 h1, h2, h3 {
-    color: #ffffff;
+    color: #1b5e20;
 }
-.card {
-    background: rgba(255,255,255,0.08);
+
+.block-container {
+    padding-top: 2rem;
+}
+
+textarea {
+    background-color: #ffffff !important;
+}
+
+div[data-testid="stFileUploader"] {
+    background-color: #ffffff;
+    padding: 15px;
+    border-radius: 10px;
+}
+
+.result-card {
+    background: #ffffff;
     padding: 20px;
-    border-radius: 16px;
-    box-shadow: 0 0 20px rgba(0,0,0,0.4);
-}
-.best {
-    background: linear-gradient(135deg, #7f00ff, #e100ff);
-    padding: 25px;
-    border-radius: 18px;
-    text-align: center;
-    font-size: 20px;
-}
-table {
-    width: 100%;
+    border-radius: 12px;
+    box-shadow: 0px 4px 12px rgba(0,0,0,0.1);
 }
 </style>
 """, unsafe_allow_html=True)
 
-# ------------------ FUNCTIONS ------------------
+# ---------------- TITLE ----------------
+st.title("📄 Resume Screening AI")
+st.caption("AI-assisted resume screening tool for HR teams")
+
+st.markdown("---")
+
+# ---------------- LAYOUT ----------------
+left, right = st.columns([1, 1.4])
+
+# ---------------- JOB DESCRIPTION ----------------
+with left:
+    st.subheader("📝 Job Description")
+    job_description = st.textarea(
+        "Paste Job Description",
+        placeholder="Paste JD here...",
+        height=220
+    )
+
+    st.subheader("📤 Upload Resumes (PDF)")
+    uploaded_files = st.file_uploader(
+        "Upload minimum 1 resume (max ~100)",
+        type=["pdf"],
+        accept_multiple_files=True
+    )
+
+# ---------------- FUNCTIONS ----------------
 def extract_text(pdf):
     reader = PdfReader(pdf)
     text = ""
     for page in reader.pages:
-        text += page.extract_text() or ""
-    return text.lower()
+        text += page.extract_text()
+    return text
 
-def calculate_similarity(jd, resumes):
-    docs = [jd] + resumes
-    tfidf = TfidfVectorizer(stop_words="english")
-    matrix = tfidf.fit_transform(docs)
-    scores = cosine_similarity(matrix[0:1], matrix[1:])[0]
-    return scores
-
-# ------------------ TITLE ------------------
-st.markdown("<h1>📄 Resume Screening AI</h1>", unsafe_allow_html=True)
-st.markdown("AI-assisted resume screening tool for HR teams")
-
-# ------------------ LAYOUT ------------------
-left, right = st.columns([1.1, 1.9])
-
-# ------------------ JOB DESCRIPTION ------------------
-with left:
-    st.markdown("<div class='card'>", unsafe_allow_html=True)
-    st.subheader("📝 Job Description")
-
-    job_description = st.text_area(
-        "Paste Job Description",
-        height=220,
-        placeholder="Paste JD here..."
-    )
-
-    st.subheader("📤 Upload Resumes (PDF)")
-    resumes = st.file_uploader(
-        "Upload minimum 1 resume (max ~100)",
-        type="pdf",
-        accept_multiple_files=True
-    )
-    st.markdown("</div>", unsafe_allow_html=True)
-
-# ------------------ PROCESSING ------------------
+# ---------------- PROCESSING ----------------
 with right:
-    if job_description and resumes:
-
+    if job_description and uploaded_files:
         resume_texts = []
         resume_names = []
 
-        for r in resumes:
-            resume_texts.append(extract_text(r))
-            resume_names.append(r.name)
+        for file in uploaded_files:
+            resume_texts.append(extract_text(file))
+            resume_names.append(file.name)
 
-        scores = calculate_similarity(job_description.lower(), resume_texts)
-        results = []
+        documents = [job_description] + resume_texts
 
-        for name, score in zip(resume_names, scores):
-            percent = round(score * 100, 2)
-            status = "Shortlisted" if percent >= 20 else "Rejected"
-            results.append((name, percent, status))
+        vectorizer = TfidfVectorizer(stop_words="english")
+        vectors = vectorizer.fit_transform(documents)
 
-        results.sort(key=lambda x: x[1], reverse=True)
-        best = results[0]
+        similarities = cosine_similarity(vectors[0:1], vectors[1:])[0]
+        scores = similarities * 100
 
-        # -------- BEST MATCH --------
+        results = pd.DataFrame({
+            "Resume": resume_names,
+            "Match %": scores
+        }).sort_values(by="Match %", ascending=False)
+
+        results["Status"] = results["Match %"].apply(
+            lambda x: "Shortlisted" if x >= 40 else "Rejected"
+        )
+
+        best = results.iloc[0]
+
+        # -------- BEST MATCH CARD --------
         st.markdown(f"""
-        <div class="best">
-        🏆 <b>Best Match</b><br><br>
-        {best[0]}<br>
-        Match Score: <b>{best[1]}%</b>
+        <div class="result-card">
+            <h3>🏆 Best Match</h3>
+            <b>{best['Resume']}</b><br>
+            Match Score: <b>{best['Match %']:.2f}%</b>
         </div>
         """, unsafe_allow_html=True)
 
-        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown("### 📊 Screening Results")
 
-        # -------- RESULTS TABLE --------
-        st.markdown("<div class='card'>", unsafe_allow_html=True)
-        st.subheader("📊 Screening Results")
-
-        st.markdown("""
-        <table>
-        <tr>
-            <th>Rank</th>
-            <th>Resume</th>
-            <th>Match %</th>
-            <th>Status</th>
-        </tr>
-        """, unsafe_allow_html=True)
-
-        for i, r in enumerate(results, start=1):
-            color = "#00ff99" if r[2] == "Shortlisted" else "#ff4d4d"
-            st.markdown(f"""
-            <tr>
-                <td>{i}</td>
-                <td>{r[0]}</td>
-                <td>{r[1]}%</td>
-                <td style="color:{color}; font-weight:bold">{r[2]}</td>
-            </tr>
-            """, unsafe_allow_html=True)
-
-        st.markdown("</table></div>", unsafe_allow_html=True)
+        # -------- TABLE (NEAT ALIGNMENT) --------
+        st.dataframe(
+            results.reset_index(drop=True),
+            use_container_width=True,
+            hide_index=True
+        )
 
     else:
-        st.markdown("<div class='card'>", unsafe_allow_html=True)
-        st.info("👈 Paste Job Description and upload at least one resume")
-        st.markdown("</div>", unsafe_allow_html=True)
+        st.info("👉 Paste Job Description and upload at least one resume to see results.")
