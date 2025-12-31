@@ -11,37 +11,38 @@ st.set_page_config(
     layout="wide"
 )
 
-# ---------------- CUSTOM CSS ----------------
+# ---------------- DARK GREEN THEME ----------------
 st.markdown("""
 <style>
 .stApp {
-    background: linear-gradient(135deg, #e8f5e9, #c8e6c9);
-    color: #1b1b1b;
+    background: linear-gradient(135deg, #0f3d2e, #145a32);
+    color: #ecf0f1;
 }
 
 h1, h2, h3 {
-    color: #1b5e20;
+    color: #e8f5e9;
 }
 
-.block-container {
-    padding-top: 2rem;
-}
-
-textarea {
-    background-color: #ffffff !important;
+textarea, input {
+    background-color: #1e272e !important;
+    color: #ecf0f1 !important;
 }
 
 div[data-testid="stFileUploader"] {
-    background-color: #ffffff;
+    background-color: #1e272e;
     padding: 15px;
     border-radius: 10px;
 }
 
 .result-card {
-    background: #ffffff;
+    background: #1e272e;
     padding: 20px;
     border-radius: 12px;
-    box-shadow: 0px 4px 12px rgba(0,0,0,0.1);
+    box-shadow: 0px 4px 14px rgba(0,0,0,0.4);
+}
+
+.stDataFrame {
+    background-color: #1e272e;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -58,15 +59,17 @@ left, right = st.columns([1, 1.4])
 # ---------------- JOB DESCRIPTION ----------------
 with left:
     st.subheader("📝 Job Description")
-    job_description = st.textarea(
-        "Paste Job Description",
-        placeholder="Paste JD here...",
+
+    # ✅ FIXED textarea (NO ERROR)
+    job_description = st.text_area(
+        label="Paste Job Description",
+        placeholder="Paste job description here...",
         height=220
     )
 
     st.subheader("📤 Upload Resumes (PDF)")
     uploaded_files = st.file_uploader(
-        "Upload minimum 1 resume (max ~100)",
+        label="Upload minimum 1 resume (max ~100)",
         type=["pdf"],
         accept_multiple_files=True
     )
@@ -76,12 +79,14 @@ def extract_text(pdf):
     reader = PdfReader(pdf)
     text = ""
     for page in reader.pages:
-        text += page.extract_text()
+        if page.extract_text():
+            text += page.extract_text()
     return text
 
 # ---------------- PROCESSING ----------------
 with right:
     if job_description and uploaded_files:
+
         resume_texts = []
         resume_names = []
 
@@ -99,7 +104,7 @@ with right:
 
         results = pd.DataFrame({
             "Resume": resume_names,
-            "Match %": scores
+            "Match %": scores.round(2)
         }).sort_values(by="Match %", ascending=False)
 
         results["Status"] = results["Match %"].apply(
@@ -113,17 +118,15 @@ with right:
         <div class="result-card">
             <h3>🏆 Best Match</h3>
             <b>{best['Resume']}</b><br>
-            Match Score: <b>{best['Match %']:.2f}%</b>
+            Match Score: <b>{best['Match %']}%</b>
         </div>
         """, unsafe_allow_html=True)
 
         st.markdown("### 📊 Screening Results")
 
-        # -------- TABLE (NEAT ALIGNMENT) --------
         st.dataframe(
             results.reset_index(drop=True),
-            use_container_width=True,
-            hide_index=True
+            use_container_width=True
         )
 
     else:
