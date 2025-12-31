@@ -1,8 +1,9 @@
 import streamlit as st
+import pandas as pd
+import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 from PyPDF2 import PdfReader
-import pandas as pd
 
 # ---------------- PAGE CONFIG ----------------
 st.set_page_config(
@@ -11,68 +12,57 @@ st.set_page_config(
     layout="wide"
 )
 
-# ---------------- DARK GREEN UI ----------------
+# ---------------- CUSTOM UI (PRO THEME) ----------------
 st.markdown("""
 <style>
 .stApp {
-    background: linear-gradient(135deg, #0b3d2e, #145a32);
-    color: #eafaf1;
+    background: linear-gradient(135deg, #0f172a, #020617);
+    color: #e5e7eb;
 }
 h1, h2, h3 {
-    color: #eafaf1;
+    color: #f8fafc;
 }
 textarea, input {
-    background-color: #1c2833 !important;
-    color: #eafaf1 !important;
-    border-radius: 8px;
-}
-div[data-testid="stFileUploader"] {
-    background-color: #1c2833;
-    padding: 16px;
+    background-color: #1e293b !important;
+    color: #e5e7eb !important;
     border-radius: 10px;
 }
+div[data-testid="stFileUploader"] {
+    background-color: #1e293b;
+    padding: 16px;
+    border-radius: 12px;
+}
 .stDataFrame {
-    background-color: #1c2833;
+    background-color: #020617;
 }
 .result-card {
-    background: #1c2833;
+    background: linear-gradient(135deg, #1e293b, #0f172a);
     padding: 18px;
-    border-radius: 12px;
+    border-radius: 14px;
     margin-bottom: 16px;
+    border-left: 5px solid #38bdf8;
 }
 </style>
 """, unsafe_allow_html=True)
 
 # ---------------- TITLE ----------------
-st.title("📄 Resume Screening AI")
-st.caption("AI-assisted resume screening prototype for HR teams")
+st.markdown("## 📄 Resume Screening AI")
+st.markdown(
+    "AI-assisted resume screening tool for HR teams — **prototype**"
+)
 
-# ---------------- FUNCTIONS ----------------
-def extract_text_from_pdf(pdf_file):
-    reader = PdfReader(pdf_file)
-    text = ""
-    for page in reader.pages:
-        if page.extract_text():
-            text += page.extract_text()
-    return text.lower()
-
-def calculate_match(jd_text, resumes):
-    documents = [jd_text] + resumes
-    vectorizer = TfidfVectorizer(stop_words="english")
-    tfidf = vectorizer.fit_transform(documents)
-    scores = cosine_similarity(tfidf[0:1], tfidf[1:]).flatten()
-    return scores
+st.divider()
 
 # ---------------- LAYOUT ----------------
-left, right = st.columns([1, 1.2])
+left, right = st.columns([1, 1.4])
 
 # ---------------- JOB DESCRIPTION ----------------
 with left:
     st.subheader("📝 Job Description")
-    job_description = st.text_area(
-        label="Paste Job Description",
-        placeholder="Paste job description here...",
-        height=220
+    job_description = st.textarea(
+        "Paste Job Description",
+        height=220,
+        placeholder="Paste JD here..."
     )
 
     st.subheader("📤 Upload Resumes (PDF)")
@@ -82,33 +72,50 @@ with left:
         accept_multiple_files=True
     )
 
-# ---------------- PROCESS ----------------
+# ---------------- FUNCTIONS ----------------
+def extract_text_from_pdf(file):
+    reader = PdfReader(file)
+    text = ""
+    for page in reader.pages:
+        if page.extract_text():
+            text += page.extract_text()
+    return text
+
+# ---------------- PROCESSING ----------------
 with right:
     st.subheader("📊 Screening Results")
 
     if job_description and uploaded_files:
-        resume_texts = []
+        resumes_text = []
         resume_names = []
 
         for file in uploaded_files:
-            resume_texts.append(extract_text_from_pdf(file))
+            resumes_text.append(extract_text_from_pdf(file))
             resume_names.append(file.name)
 
-        scores = calculate_match(job_description.lower(), resume_texts)
+        documents = [job_description] + resumes_text
 
-        results = []
-        for name, score in zip(resume_names, scores):
-            percentage = round(score * 100, 2)
-            status = "Shortlisted ✅" if percentage >= 40 else "Rejected ❌"
-            results.append([name, percentage, status])
+        vectorizer = TfidfVectorizer(stop_words="english")
+        tfidf_matrix = vectorizer.fit_transform(documents)
 
-        df = pd.DataFrame(
-            results,
-            columns=["Resume", "Match %", "Status"]
-        ).sort_values(by="Match %", ascending=False).reset_index(drop=True)
+        similarity_scores = cosine_similarity(
+            tfidf_matrix[0:1], tfidf_matrix[1:]
+        )[0]
 
-        # Best match card
-        best = df.iloc[0]
+        results = pd.DataFrame({
+            "Resume": resume_names,
+            "Match %": np.round(similarity_scores * 100, 2)
+        })
+
+        results = results.sort_values(by="Match %", ascending=False).reset_index(drop=True)
+        results["Rank"] = results.index + 1
+        results["Status"] = results["Match %"].apply(
+            lambda x: "Shortlisted" if x >= 40 else "Rejected"
+        )
+
+        best = results.iloc[0]
+
+        # -------- BEST MATCH CARD --------
         st.markdown(f"""
         <div class="result-card">
             🏆 <b>Best Match</b><br><br>
@@ -117,7 +124,12 @@ with right:
         </div>
         """, unsafe_allow_html=True)
 
-        st.dataframe(df, use_container_width=True)
+        # -------- TABLE --------
+        st.dataframe(
+            results[["Rank", "Resume", "Match %", "Status"]],
+            use_container_width=True
+        )
 
     else:
-        st.info("👉 Paste Job Description and upload at least one resume to start screening.")
+        st.info("👉 Paste Job Description and upload at least one resume")
+
