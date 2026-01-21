@@ -1,22 +1,21 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+from PyPDF2 import PdfReader
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
-from PyPDF2 import PdfReader
 
 # ---------------- PAGE CONFIG ----------------
 st.set_page_config(
-    page_title="Resume Screening AI",
-    page_icon="📄",
+    page_title="AI Resume Screening with Feedback",
     layout="wide"
 )
 
-# ---------------- CUSTOM UI (PRO THEME) ----------------
+# ---------------- BASIC STYLE ----------------
 st.markdown("""
 <style>
 .stApp {
-    background: linear-gradient(135deg, #0f172a, #020617);
+    background-color: #0f172a;
     color: #e5e7eb;
 }
 h1, h2, h3 {
@@ -25,52 +24,16 @@ h1, h2, h3 {
 textarea, input {
     background-color: #1e293b !important;
     color: #e5e7eb !important;
-    border-radius: 10px;
-}
-div[data-testid="stFileUploader"] {
-    background-color: #1e293b;
-    padding: 16px;
-    border-radius: 12px;
-}
-.stDataFrame {
-    background-color: #020617;
-}
-.result-card {
-    background: linear-gradient(135deg, #1e293b, #0f172a);
-    padding: 18px;
-    border-radius: 14px;
-    margin-bottom: 16px;
-    border-left: 5px solid #38bdf8;
 }
 </style>
 """, unsafe_allow_html=True)
 
-# ---------------- TITLE ----------------
-st.markdown("## 📄 Resume Screening AI")
-st.markdown(
-    "AI-assisted resume screening tool for HR teams — **prototype**"
-)
-
-st.divider()
-
-# ---------------- LAYOUT ----------------
-left, right = st.columns([1, 1.4])
-
-# ---------------- JOB DESCRIPTION ----------------
-with left:
-    st.subheader("📝 Job Description")
-    job_description = st.textarea(
-        "Paste Job Description",
-        height=220,
-        placeholder="Paste JD here..."
-    )
-
-    st.subheader("📤 Upload Resumes (PDF)")
-    uploaded_files = st.file_uploader(
-        "Upload minimum 1 resume (max ~100)",
-        type=["pdf"],
-        accept_multiple_files=True
-    )
+# ---------------- SKILL LIST ----------------
+SKILLS_LIST = [
+    "python", "sql", "excel", "aws", "docker", "react",
+    "java", "machine learning", "data analysis",
+    "power bi", "tableau", "api", "git"
+]
 
 # ---------------- FUNCTIONS ----------------
 def extract_text_from_pdf(file):
@@ -81,55 +44,110 @@ def extract_text_from_pdf(file):
             text += page.extract_text()
     return text
 
+def extract_skills(text):
+    text = text.lower()
+    return [skill for skill in SKILLS_LIST if skill in text]
+
+def generate_suggestions(missing_skills):
+    return [f"Improve knowledge or projects in {skill}" for skill in missing_skills]
+
+# ---------------- TITLE ----------------
+st.title("📄 AI Resume Screening with Candidate Feedback")
+st.caption("Shortlist resumes and provide clear feedback for rejected candidates")
+
+st.divider()
+
+# ---------------- INPUT SECTION ----------------
+col1, col2 = st.columns(2)
+
+with col1:
+    job_description = st.text_area(
+        "📝 Paste Job Description",
+        height=220
+    )
+
+with col2:
+    uploaded_files = st.file_uploader(
+        "📤 Upload Resumes (PDF)",
+        type=["pdf"],
+        accept_multiple_files=True
+    )
+
 # ---------------- PROCESSING ----------------
-with right:
+if job_description and uploaded_files:
+    resume_texts = []
+    resume_names = []
+
+    for file in uploaded_files:
+        resume_texts.append(extract_text_from_pdf(file))
+        resume_names.append(file.name)
+
+    documents = [job_description] + resume_texts
+
+    vectorizer = TfidfVectorizer(stop_words="english")
+    tfidf_matrix = vectorizer.fit_transform(documents)
+
+    scores = cosine_similarity(tfidf_matrix[0:1], tfidf_matrix[1:])[0]
+
+    results = pd.DataFrame({
+        "Resume": resume_names,
+        "Match %": np.round(scores * 100, 2)
+    })
+
+    results = results.sort_values(by="Match %", ascending=False).reset_index(drop=True)
+    results["Rank"] = results.index + 1
+    results["Status"] = results["Match %"].apply(
+        lambda x: "Shortlisted" if x >= 40 else "Rejected"
+    )
+
+    # ---------------- SKILL ANALYSIS ----------------
+    jd_skills = extract_skills(job_description)
+    resume_skills_map = {
+        name: extract_skills(text)
+        for name, text in zip(resume_names, resume_texts)
+    }
+
+    missing_skills = []
+    suggestions = []
+
+    for _, row in results.iterrows():
+        r_skills = resume_skills_map.get(row["Resume"], [])
+        missing = list(set(jd_skills) - set(r_skills))
+        missing_skills.append(missing)
+        suggestions.append(generate_suggestions(missing))
+
+    results["Missing Skills"] = missing_skills
+    results["Suggestions"] = suggestions
+
+    # ---------------- DISPLAY RESULTS ----------------
     st.subheader("📊 Screening Results")
+    st.dataframe(
+        results[["Rank", "Resume", "Match %", "Status"]],
+        use_container_width=True
+    )
 
-    if job_description and uploaded_files:
-        resumes_text = []
-        resume_names = []
+    # ---------------- FEEDBACK SECTION ----------------
+    st.subheader("📌 Feedback for Rejected Candidates")
 
-        for file in uploaded_files:
-            resumes_text.append(extract_text_from_pdf(file))
-            resume_names.append(file.name)
+    rejected = results[results["Status"] == "Rejected"]
 
-        documents = [job_description] + resumes_text
-
-        vectorizer = TfidfVectorizer(stop_words="english")
-        tfidf_matrix = vectorizer.fit_transform(documents)
-
-        similarity_scores = cosine_similarity(
-            tfidf_matrix[0:1], tfidf_matrix[1:]
-        )[0]
-
-        results = pd.DataFrame({
-            "Resume": resume_names,
-            "Match %": np.round(similarity_scores * 100, 2)
-        })
-
-        results = results.sort_values(by="Match %", ascending=False).reset_index(drop=True)
-        results["Rank"] = results.index + 1
-        results["Status"] = results["Match %"].apply(
-            lambda x: "Shortlisted" if x >= 40 else "Rejected"
-        )
-
-        best = results.iloc[0]
-
-        # -------- BEST MATCH CARD --------
-        st.markdown(f"""
-        <div class="result-card">
-            🏆 <b>Best Match</b><br><br>
-            <b>{best['Resume']}</b><br>
-            Match Score: <b>{best['Match %']}%</b>
-        </div>
-        """, unsafe_allow_html=True)
-
-        # -------- TABLE --------
-        st.dataframe(
-            results[["Rank", "Resume", "Match %", "Status"]],
-            use_container_width=True
-        )
-
+    if rejected.empty:
+        st.success("No rejected candidates 🎉")
     else:
-        st.info("👉 Paste Job Description and upload at least one resume")
+        for _, row in rejected.iterrows():
+            with st.expander(f"Feedback for {row['Resume']}"):
+                st.write("❌ **Reason for Rejection**")
+                st.write("Some key skills required for this role were missing.")
 
+                st.write("🧩 **Missing Skills**")
+                if row["Missing Skills"]:
+                    st.write(", ".join(row["Missing Skills"]))
+                else:
+                    st.write("No major skill gaps identified.")
+
+                st.write("🛠️ **Suggested Improvements**")
+                for s in row["Suggestions"]:
+                    st.write("- " + s)
+
+else:
+    st.info("Please upload resumes and paste the job description to start.")
