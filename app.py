@@ -62,7 +62,7 @@ col1, col2 = st.columns(2)
 
 with col1:
     job_description = st.text_area(
-        "📝 Paste Job Description",
+        "Give the Job Description",
         height=220
     )
 
@@ -151,3 +151,4 @@ if job_description and uploaded_files:
 
 else:
     st.info("Please upload resumes and paste the job description to start.")
+
